@@ -1,0 +1,53 @@
+# Bass 365
+
+365 天的貝斯課程 Web App。用電腦或手機的麥克風收音，即時判斷你彈的音高和節奏。
+
+- **365 課，分 12 個階段**：基礎複習 → 根音律動 → 大調音階 → 小調／五聲／藍調 → 三和弦 → 十六分音符 → 七和弦 → Walking Bass → 調式 → Funk／八度／三連音 → 換把位與速度 → 綜合曲風。每 7 天一次複習，第 365 天是畢業考。
+- **每課兩顆星**
+  - ① 彈對音：不限時間，彈對才會前進。正確率 ≥ 80% 得 ★
+  - ② 音＋節奏：拿到第一顆星後解鎖。跟著節拍器彈，命中率 ≥ 80% 且速度達到目標 BPM 得 ★，並標示 **COMPLETE**
+- 其他功能：TAB 譜、合成貝斯示範、節拍器、調音器、延遲校正、進度匯出／匯入
+- 純前端，不需要伺服器或帳號。進度存在瀏覽器的 localStorage 裡，聲音不會上傳
+
+## 部署到 GitHub Pages
+
+1. 在 GitHub 建立一個新的 repository（例如 `bass365`）
+2. 把這個資料夾裡的所有檔案上傳到 repository 根目錄（`index.html`、`css/`、`js/`、`manifest.json`、`icon.svg`、`.nojekyll`）
+3. 到 repository 的 **Settings → Pages**，Source 選 **Deploy from a branch**，Branch 選 `main`、資料夾選 `/ (root)`，按 Save
+4. 約一分鐘後網址會是 `https://<你的帳號>.github.io/bass365/`
+
+用命令列上傳：
+
+```bash
+git init && git add . && git commit -m "Bass 365"
+git branch -M main
+git remote add origin https://github.com/<你的帳號>/bass365.git
+git push -u origin main
+```
+
+> 麥克風只能在 HTTPS 或 localhost 下使用，GitHub Pages 預設就是 HTTPS。
+
+## 本機執行
+
+```bash
+python3 -m http.server 8365
+```
+
+然後打開 http://localhost:8365
+
+## 使用建議
+
+- 貝斯接音箱並靠近麥克風最準。手機或筆電內建麥克風收不太到最低頻，App 預設接受高八度的判定（可在設定裡關掉）
+- 節奏模式建議戴耳機聽節拍器
+- 第一次使用請到「設定」做一次**自動延遲校正**
+- 在手機上可以用瀏覽器的「加入主畫面」，像 App 一樣全螢幕開啟
+- 電腦和手機的進度不會自動同步，請用「設定 → 匯出／匯入進度」
+
+## 檔案結構
+
+| 檔案 | 內容 |
+|---|---|
+| `js/lessons.js` | 課程產生器：12 個階段的模板、和弦進行、節奏格，自動排 TAB 指位 |
+| `js/audio.js` | 麥克風、YIN 音高偵測、合成貝斯、節拍器 |
+| `js/app.js` | 介面、練習判定、調音器、設定 |
+| `css/style.css` | 樣式（支援手機） |

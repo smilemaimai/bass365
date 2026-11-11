@@ -81,6 +81,8 @@
     const p = parts[0] || 'home';
     if (p === 'lesson') viewLesson(+parts[1]);
     else if (p === 'tuner') viewTuner();
+    else if (p === 'ear') window.B365Train.ear(app, trainCtx);
+    else if (p === 'theory') window.B365Train.theory(app, trainCtx);
     else if (p === 'settings') viewSettings();
     else viewHome();
     document.querySelectorAll('.nav a').forEach(a => a.classList.toggle('on', a.dataset.p === (p === 'lesson' ? 'home' : p)));
@@ -527,6 +529,12 @@
       if (confirm('確定要清除所有課程進度嗎？這個動作無法復原（設定會保留）。')) { store.lessons = {}; store.days = []; save(); toast('進度已重設'); }
     };
   }
+
+  const trainCtx = {
+    A, S, save, toast, needMic, makeLoop, match, esc, markPracticed,
+    get store() { return store; },
+    setSess(s) { sess = s; },
+  };
 
   route();
 })();

@@ -88,6 +88,18 @@ main { max-width: 920px; margin: 0 auto; padding: 16px; }
 .chips .rv { border-color: var(--accent); color: var(--accent2); }
 .goal { margin: .4rem 0 .6rem; }
 .tips { margin: 0; padding-left: 1.2rem; color: var(--muted); font-size: .9rem; }
+.lesson-head h1 { margin-bottom: .2rem; }
+.drills { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin-top: 4px; }
+.drill { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--card2); border: 1px solid var(--line); color: var(--text); text-decoration: none; min-width: 0; }
+.drill small { color: var(--muted); font-size: .72rem; }
+.drill b { font-size: .84rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drill i { font-style: normal; font-size: .78rem; color: #4a515e; }
+.drill.ds1 i { color: var(--accent); }
+.drill.ds2 { background: rgba(60, 207, 142, .12); border-color: rgba(60, 207, 142, .45); }
+.drill.ds2 i { color: var(--ok); }
+.drill.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.drill-head h2 { margin: .2rem 0 .5rem; font-size: 1.15rem; }
+.dlabel { font-size: .78rem; font-weight: 700; color: var(--accent); letter-spacing: .04em; }
 
 .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--card2); padding: 5px; border-radius: 12px; }
 .modes button { border: 0; background: transparent; border-radius: 9px; padding: 10px; font-weight: 600; color: var(--muted); }

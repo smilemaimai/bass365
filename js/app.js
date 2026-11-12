@@ -1,6 +1,6 @@
 /* Bass 365 — 介面與練習邏輯 */
 (function () {
-  const { LESSONS, STAGES, OPEN, SN, noteName, pcName } = window.BASS365;
+  const { LESSONS, STAGES, OPEN, SN, METER, noteName, pcName } = window.BASS365;
   const A = window.BassAudio;
   const $ = (s, r = document) => r.querySelector(s);
   const app = $('#app');
@@ -16,6 +16,17 @@
   const S = () => store.settings;
   function save() { try { localStorage.setItem(LS, JSON.stringify(store)); } catch (e) { } }
   const rec = (d) => (store.lessons[d] = store.lessons[d] || { p: false, r: false, ps: 0, rs: 0 });
+  const drec = (d, k) => { const r = rec(d); r.d = r.d || {}; return (r.d[k] = r.d[k] || { p: false, r: false, ps: 0, rs: 0 }); };
+  const dstars = (d, k) => { const x = store.lessons[d]?.d?.[k]; return x ? (x.p ? 1 : 0) + (x.r ? 1 : 0) : 0; };
+  // 依拍號排節拍器：from 拍開始、共 n 拍
+  function metro(t0, spb, M, nBeats, vol, accVol) {
+    const steps = Math.round(nBeats / M.click);
+    for (let i = 0; i < steps; i++) {
+      const b = i * M.click, inBar = ((b % M.bpb) + M.bpb) % M.bpb;
+      const acc = M.acc.some(a => Math.abs(a - inBar) < 1e-6);
+      A.click(t0 + b * spb, inBar < 1e-6, acc ? accVol : vol);
+    }
+  }
   const stars = (d) => { const r = store.lessons[d]; return r ? (r.p ? 1 : 0) + (r.r ? 1 : 0) : 0; };
   const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   function markPracticed() { const d = fmt(new Date()); if (!store.days.includes(d)) store.days.push(d); }
@@ -79,7 +90,7 @@
     A.stopAll();
     const parts = (location.hash.slice(1) || '/').split('/').filter(Boolean);
     const p = parts[0] || 'home';
-    if (p === 'lesson') viewLesson(+parts[1]);
+    if (p === 'lesson') viewLesson(+parts[1], parts[2] != null ? +parts[2] : undefined);
     else if (p === 'tuner') viewTuner();
     else if (p === 'ear') window.B365Train.ear(app, trainCtx);
     else if (p === 'theory') window.B365Train.theory(app, trainCtx);
@@ -99,7 +110,7 @@
       ${S().introDone ? '' : `<section class="card intro">
         <h2>開始之前</h2>
         <ol>
-          <li><b>每一課兩顆星</b>：① 彈對音（不限時間）→ ② 音＋節奏（跟節拍器）。兩顆都拿到就是 <span class="cbadge">COMPLETE</span>。</li>
+          <li><b>每天 3～5 段練習</b>：暖身技巧 → 今日主題 → 應用曲 → 複習。每段都要過 ① 彈對音（不限時間）和 ② 音＋節奏（跟節拍器）。全部段落都過 ①，今天拿到第一顆星；全部都過 ②，拿到第二顆星和 <span class="cbadge">COMPLETE</span>。</li>
           <li><b>收音</b>：把貝斯接音箱、靠近麥克風最準。手機或筆電內建麥克風也能用，音箱音量開大一點。</li>
           <li><b>節奏模式建議戴耳機</b>聽節拍器，避免麥克風收到點擊聲。</li>
           <li>第一次使用請到 <a href="#/settings">設定</a> 做一次「延遲校正」，節奏判定會更準。</li>
@@ -141,13 +152,14 @@
     const left = 34, top = 30, sp = 24, tot = totalBeats(L);
     const W = Math.ceil(left + tot * ppb + 20), H = top + 3 * sp + 40;
     L._g = { ppb, left, top, sp };
+    const M = L.meter || METER['4/4'];
     let s = `<svg class="tab" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
     for (let i = 0; i < 4; i++) { const y = top + i * sp; s += `<line x1="${left - 8}" x2="${W - 8}" y1="${y}" y2="${y}" class="str"/><text x="12" y="${y + 4}" class="sl">${['G', 'D', 'A', 'E'][i]}</text>`; }
-    const nb = Math.round(tot / 4);
+    const nb = Math.round(tot / M.bpb), nc = Math.round(M.bpb / M.click);
     for (let b = 0; b <= nb; b++) {
-      const x = left + b * 4 * ppb;
+      const x = left + b * M.bpb * ppb;
       s += `<line x1="${x}" x2="${x}" y1="${top}" y2="${top + 3 * sp}" class="barl"/>`;
-      if (b < nb) for (let k = 0; k < 4; k++) s += `<text x="${x + k * ppb + 12}" y="${top - 14}" class="beat${k === 0 ? ' b1' : ''}">${k + 1}</text>`;
+      if (b < nb) for (let k = 0; k < nc; k++) s += `<text x="${x + k * M.click * ppb + 12}" y="${top - 14}" class="beat${M.acc.some(a => Math.abs(a - k * M.click) < 1e-6) ? ' b1' : ''}">${k + 1}</text>`;
     }
     let pos = 0;
     L.notes.forEach((n, i) => {
@@ -165,20 +177,33 @@
   const noteX = (L, i) => { let p = 0; for (let k = 0; k < i; k++) p += L.notes[k].d; return L._g.left + p * L._g.ppb + 12; };
 
   // ---------- 課程頁 ----------
-  function viewLesson(day) {
-    const L = LESSONS[day - 1]; if (!L) { location.hash = '#/'; return; }
-    const st = STAGES[L.stage];
-    const r0 = store.lessons[day] || {};
+  function viewLesson(day, di0) {
+    const LL = LESSONS[day - 1]; if (!LL) { location.hash = '#/'; return; }
+    const nD = LL.drills.length;
+    let di = Number.isInteger(di0) && di0 >= 0 && di0 < nD ? di0 : LL.drills.findIndex((d, k) => dstars(day, k) < 2);
+    if (di < 0) di = 0;
+    const L = LL.drills[di];
+    const st = STAGES[LL.stage];
+    const r0 = store.lessons[day]?.d?.[di] || {};
     let mode = r0.p && !r0.r ? 'rhythm' : 'pitch';
     let bpm = L.bpm;
     const nNotes = L.notes.filter(n => !n.r).length;
+    const M = L.meter || METER['4/4'];
+    const dayNotes = LL.drills.reduce((a, d) => a + d.notes.filter(n => !n.r).length, 0);
     app.innerHTML = `
       <div class="crumbs"><a href="#/">← 全部課程</a><span>階段 ${st.index + 1}・${esc(st.name)}</span></div>
       <section class="card lesson-head">
         <div class="lh-top"><span class="daytag">DAY ${day}<small> / 365</small></span><div class="lstars" id="lstars"></div></div>
-        <h1>${esc(L.title)}</h1>
-        <div class="chips"><span>${esc(L.key.n)} 調</span><span>目標 ♩= ${L.bpm}</span><span>${Math.round(totalBeats(L) / 4)} 小節</span><span>${nNotes} 個音</span>${L.review ? '<span class="rv">複習日</span>' : ''}</div>
-        <p class="goal">${esc(L.goal)}</p>
+        <h1>${esc(LL.title)}</h1>
+        <p class="goal">${esc(LL.goal)}</p>
+        <div class="chips"><span>${nD} 段練習</span><span>共 ${dayNotes} 個音</span>${LL.review ? '<span class="rv">複習日</span>' : ''}</div>
+        <div class="drills" id="drills"></div>
+      </section>
+      <section class="card drill-head">
+        <div class="dh-top"><span class="dlabel">${di + 1} / ${nD}・${esc(L.label)}</span></div>
+        <h2>${esc(L.title)}</h2>
+        <div class="chips">${L.kind === 'tech' ? '' : `<span>${esc(L.key.n)} 調</span>`}<span>目標 ♩= ${L.bpm}</span>${M.name !== '4/4' ? `<span class="rv">${M.name} 拍</span>` : ''}<span>${Math.round(totalBeats(L) / M.bpb)} 小節</span><span>${nNotes} 個音</span></div>
+        <p class="goal">${esc(L.goal).replace(/\n/g, '<br>')}</p>
         <ul class="tips">${L.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
       </section>
       <section class="card practice">
@@ -243,19 +268,21 @@
 
     function paintStars() {
       const r = store.lessons[day] || {};
-      $('#lstars').innerHTML = `<span class="${r.p ? 'on' : ''}" title="彈對音">★<small>音準</small></span><span class="${r.r ? 'on' : ''}" title="音＋節奏">★<small>節奏</small></span>${r.p && r.r ? '<span class="cbadge">COMPLETE</span>' : ''}`;
+      $('#lstars').innerHTML = `<span class="${r.p ? 'on' : ''}" title="所有段落都彈對音">★<small>音準</small></span><span class="${r.r ? 'on' : ''}" title="所有段落都過節奏">★<small>節奏</small></span>${r.p && r.r ? '<span class="cbadge">COMPLETE</span>' : ''}`;
+      $('#drills').innerHTML = LL.drills.map((d, k) => { const x = dstars(day, k); return `<a href="#/lesson/${day}/${k}" class="drill${k === di ? ' on' : ''} ds${x}"><small>${k + 1}・${esc(d.label)}</small><b>${esc(d.title)}</b><i>${x === 2 ? '✓' : '★'.repeat(x) + '☆'.repeat(2 - x)}</i></a>`; }).join('');
+      const dr = store.lessons[day]?.d?.[di] || {};
       const rb = document.querySelector('[data-mode=rhythm]');
-      rb.classList.toggle('locked', !r.p);
-      rb.innerHTML = `<span>②</span> 音＋節奏${r.p ? '' : ' 🔒'}`;
+      rb.classList.toggle('locked', !dr.p);
+      rb.innerHTML = `<span>②</span> 音＋節奏${dr.p ? '' : ' 🔒'}`;
     }
     function setMode(m) {
-      const r = store.lessons[day] || {};
+      const r = store.lessons[day]?.d?.[di] || {};
       if (m === 'rhythm' && !r.p) { toast('先完成 ① 彈對音，拿到第一顆星才能解鎖節奏挑戰'); return; }
       stopAll(); mode = m;
       document.querySelectorAll('.modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
       $('#modeDesc').innerHTML = m === 'pitch'
-        ? `照著 TAB 一個音一個音彈，<b>不限時間</b>。彈對才會前進，彈錯會記一次失誤。正確率 ≥ ${S().pass}% 拿到 <b>第一顆星 ★</b>。`
-        : `預備拍 4 下後，跟著節拍器在<b>正確的時間</b>彈出<b>正確的音</b>。命中率 ≥ ${S().pass}% 且速度 ≥ ${L.bpm} BPM，拿到 <b>第二顆星 ★</b> 並完成本課。可以先降速練習。`;
+        ? `照著 TAB 一個音一個音彈，<b>不限時間</b>。彈對才會前進，彈錯會記一次失誤。正確率 ≥ ${S().pass}% 這段就過關。<b>全部 ${nD} 段</b>都過關，今天拿到第一顆星 ★。`
+        : `預備一小節後，跟著節拍器在<b>正確的時間</b>彈出<b>正確的音</b>。命中率 ≥ ${S().pass}% 且速度 ≥ ${L.bpm} BPM 這段就過關。<b>全部 ${nD} 段</b>都過關，今天拿到第二顆星 ★ 並 COMPLETE。可以先降速練習。`;
       ui.reset();
     }
     function stopAll() { stopSession(); demoing = false; practicing = false; $('#demoBtn').textContent = '🔊 聽示範'; $('#startBtn').textContent = '🎤 開始練習'; $('#startBtn').classList.remove('stop'); }
@@ -265,11 +292,11 @@
     $('#demoBtn').onclick = () => {
       if (demoing) { stopAll(); ui.reset(); return; }
       stopAll(); ui.reset(); A.ensureCtx(); demoing = true; $('#demoBtn').textContent = '■ 停止示範';
-      const spb = 60 / bpm, t0 = A.now() + 0.3 + 4 * spb;
-      for (let b = 0; b < 4; b++) A.click(t0 - (4 - b) * spb, b === 0, S().clickVol);
+      const spb = 60 / bpm, t0 = A.now() + 0.3 + M.bpb * spb;
+      metro(t0 - M.bpb * spb, spb, M, M.bpb, S().clickVol * 0.8, S().clickVol);
       let pos = 0; const evs = [];
       L.notes.forEach((n, i) => { const t = t0 + pos * spb; if (!n.r) { A.bassNote(n.m, t, n.d * spb); evs.push({ i, t }); } pos += n.d; });
-      const tb = totalBeats(L); for (let b = 0; b < tb; b++) A.click(t0 + b * spb, b % 4 === 0, S().clickVol * 0.45);
+      const tb = totalBeats(L); metro(t0, spb, M, tb, S().clickVol * 0.35, S().clickVol * 0.5);
       const end = t0 + tb * spb; let k = 0;
       let alive = true;
       sess = { stop() { alive = false; } };
@@ -300,7 +327,7 @@
 
     function done(res) {
       practicing = false; sess = null; $('#startBtn').textContent = '🎤 再練一次'; $('#startBtn').classList.remove('stop');
-      const r = rec(day); const before = stars(day);
+      const r = drec(day, di); const before = stars(day);
       let passed = false, msg = '';
       if (res.mode === 'pitch') {
         r.ps = Math.max(r.ps || 0, res.score);
@@ -316,14 +343,25 @@
         if (res.avgOff != null) msg += `・平均${res.avgOff < 0 ? '偏早' : '偏晚'} ${Math.abs(Math.round(res.avgOff * 1000))} ms`;
         if (res.score >= S().pass && !fastEnough) msg += `<br>彈得很好！把速度調到 ${L.bpm} BPM 再挑戰一次就能拿星。`;
       }
+      const R = rec(day);
+      if (LL.drills.every((d, k) => R.d?.[k]?.p)) R.p = true;
+      if (LL.drills.every((d, k) => R.d?.[k]?.r)) R.r = true;
       markPracticed(); save(); paintStars();
       const after = stars(day);
       const complete = after === 2 && before < 2;
+      const gained = after > before;
+      const left = (m) => LL.drills.filter((d, k) => !R.d?.[k]?.[m]).length;
+      const nextK = (m) => { for (let s = 1; s <= nD; s++) { const k = (di + s) % nD; if (!R.d?.[k]?.[m]) return k; } return -1; };
+      const nk = passed ? nextK(res.mode === 'pitch' ? 'p' : 'r') : -1;
+      let head = '再試一次';
+      if (complete) head = `COMPLETE！Day ${day} 全部完成`;
+      else if (gained) head = '★ 今天的第一顆星到手！所有段落的節奏挑戰都已解鎖';
+      else if (passed) head = res.mode === 'pitch' ? `這段音準過關！節奏挑戰已解鎖（今天還有 ${left('p')} 段要過音準）` : `這段節奏過關！（今天還有 ${left('r')} 段要過節奏）`;
       $('#result').innerHTML = `<div class="result ${passed ? 'ok' : 'no'} ${complete ? 'complete' : ''}">
         <div class="r-icon">${complete ? '🏆' : passed ? '★' : '↻'}</div>
-        <div class="r-body"><strong>${complete ? 'COMPLETE！這課完成了' : passed ? (res.mode === 'pitch' ? '拿到第一顆星！節奏挑戰已解鎖' : '通過！') : '再試一次'}</strong><p>${msg}</p>
+        <div class="r-body"><strong>${head}</strong><p>${msg}</p>
         ${!passed ? `<p class="hint">需要 ≥ ${S().pass}%。${res.mode === 'rhythm' ? '可以先降低 BPM、戴耳機，或到設定裡做延遲校正。' : '彈完一個音後先止音，再彈下一個，偵測會更穩。'}</p>` : ''}</div>
-        <div class="r-act">${passed && res.mode === 'pitch' && !r.r ? '<button class="btn primary" id="goR">挑戰 ② 節奏 →</button>' : ''}${complete || (passed && r.r && day < 365) ? `<a class="btn primary" href="#/lesson/${day + 1}">下一課 →</a>` : ''}</div>
+        <div class="r-act">${passed && res.mode === 'pitch' && !r.r ? '<button class="btn ghost" id="goR">挑戰這段的節奏 →</button>' : ''}${nk >= 0 && nk !== di ? `<a class="btn primary" href="#/lesson/${day}/${nk}">下一段：${esc(LL.drills[nk].label)} →</a>` : ''}${(complete || (passed && after === 2)) && day < 365 ? `<a class="btn primary" href="#/lesson/${day + 1}">下一天 →</a>` : ''}</div>
       </div>`;
       const g = $('#goR'); if (g) g.onclick = () => setMode('rhythm');
     }
@@ -359,9 +397,10 @@
   // 模式 ②：音＋節奏
   function rhythmSession(L, bpm, ui, done) {
     A.ensureCtx();
-    const spb = 60 / bpm, t0 = A.now() + 0.4 + 4 * spb, tb = totalBeats(L);
-    for (let b = 0; b < 4; b++) A.click(t0 - (4 - b) * spb, b === 0, S().clickVol);
-    if (S().metro === 'full') for (let b = 0; b < tb; b++) A.click(t0 + b * spb, b % 4 === 0, S().clickVol * 0.7);
+    const M = L.meter || METER['4/4'];
+    const spb = 60 / bpm, t0 = A.now() + 0.4 + M.bpb * spb, tb = totalBeats(L);
+    metro(t0 - M.bpb * spb, spb, M, M.bpb, S().clickVol * 0.8, S().clickVol);
+    if (S().metro === 'full') metro(t0, spb, M, tb, S().clickVol * 0.55, S().clickVol * 0.75);
     let pos = 0; const exp = [];
     L.notes.forEach((n, i) => { if (!n.r) exp.push({ i, t: t0 + pos * spb, m: n.m, res: null }); pos += n.d; });
     let minGap = Infinity; for (let i = 1; i < exp.length; i++) minGap = Math.min(minGap, exp[i].t - exp[i - 1].t);

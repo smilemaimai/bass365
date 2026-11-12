@@ -38,11 +38,24 @@
     mblues: [[0, 'm7'], [0, 'm7'], [0, 'm7'], [0, 'm7'], [5, 'm7'], [5, 'm7'], [0, 'm7'], [0, 'm7'], [8, '7'], [7, '7'], [0, 'm7'], [7, '7']],
     dorianVamp: [[0, 'm7'], [5, '7'], [0, 'm7'], [5, '7']],
     mixoVamp: [[0, '7'], [10, 'maj'], [0, '7'], [10, 'maj']],
+    rhyA: [[0, 'maj7'], [9, '7'], [2, 'm7'], [7, '7'], [0, 'maj7'], [9, '7'], [2, 'm7'], [7, '7'], [0, 'maj7'], [0, '7'], [5, 'maj7'], [5, 'm7'], [0, 'maj7'], [7, '7'], [0, 'maj7'], [7, '7']],
+    bridge: [[4, '7'], [4, '7'], [9, '7'], [9, '7'], [2, '7'], [2, '7'], [7, '7'], [7, '7']],
+    minIIVI: [[2, 'm7b5'], [7, '7'], [0, 'm7'], [0, 'm7']],
+    tritone: [[2, 'm7'], [1, '7'], [0, 'maj7'], [0, 'maj7']],
   };
   const PROG_NAME = {
     pop: 'I–V–vi–IV', classic: 'I–IV–V–I', fifties: 'I–vi–IV–V', sad: 'vi–IV–I–V', rock: 'I–bVII–IV–I',
     minor: 'i–iv–v–i', aeolian: 'i–bVI–bIII–bVII', iiVI: 'ii–V–I', turn: 'I–vi–ii–V', blues4: 'I7–IV7–I7–V7',
     blues: '12 小節藍調', mblues: '12 小節小調藍調', dorianVamp: 'i7–IV7', mixoVamp: 'I7–bVII',
+    rhyA: 'Rhythm Changes A 段（每小節兩個和弦）', bridge: 'III7–VI7–II7–V7 橋段', minIIVI: '小調 iiø–V7–i', tritone: 'ii–bII7–I（三全音代理）',
+  };
+  // 拍號：bpb = 每小節幾拍（以四分音符計）、click = 節拍器間隔、acc = 重音位置
+  const METER = {
+    '4/4': { name: '4/4', bpb: 4, click: 1, acc: [0] },
+    '3/4': { name: '3/4', bpb: 3, click: 1, acc: [0] },
+    '6/8': { name: '6/8', bpb: 3, click: 0.5, acc: [0, 1.5] },
+    '5/4': { name: '5/4', bpb: 5, click: 1, acc: [0, 3] },
+    '7/8': { name: '7/8', bpb: 3.5, click: 0.5, acc: [0, 1, 2] },
   };
 
   // ---------- helpers ----------
@@ -86,7 +99,9 @@
   }
   const g16 = (pat, ints) => (r, c) => grid(pat, ints, r, c, 0.25);
   const g12 = (pat, ints) => (r, c) => grid(pat, ints, r, c, 1 / 3);
-  const bars = (chords, fn) => chords.flatMap(ch => fn(ch.r, ch.c, ch));
+  const g8 = (pat, ints) => (r, c) => grid(pat, ints, r, c, 0.5);
+  const bars = (chords, fn) => chords.flatMap((ch, i) => fn(ch.r, ch.c, ch, chords[(i + 1) % chords.length]));
+  const ap = (nx, from) => { let a = from <= nx ? nx - 1 : nx + 1; if (a < 28) a = nx + 1; return a; };
 
   const PAT = {
     whole: (r) => [N(r, 4)],
@@ -114,23 +129,36 @@
     country: (r, c) => [N(r, 2), N(r + c[2] - 12 >= 28 ? r + c[2] - 12 : r + c[2], 2)],
   };
 
-  function walk(chords, rnd) {
+  function walkBar(ch, nxCh, rnd) {
+    const { r, c } = ch; const nx = nxCh.r;
+    const top = c[3] ?? 12;
+    const shapes = [[c[1], c[2]], [c[2], top], [2, c[1]], [c[2], c[1]], [12, top]];
+    const sh = shapes[Math.floor(rnd() * shapes.length)];
+    const b2 = r + sh[0], b3 = r + sh[1];
+    let a = rnd() < 0.5 ? nx - 1 : nx + 1;
+    if (rnd() < 0.2) a = nx + 7 <= 52 ? nx + 7 : nx - 5;
+    if (Math.abs(a - b3) > 9) a = nx + (b3 > nx ? 1 : -1);
+    if (a < 28) a = nx + 1;
+    return [N(r, 1), N(b2, 1), N(b3, 1), N(a, 1)];
+  }
+  // 包圍音（enclosure）：第 3、4 拍從上方和下方夾住下一個根音
+  function walkEncBar(ch, nxCh, rnd) {
+    const { r, c } = ch; const nx = nxCh.r;
+    let a1 = nx + (rnd() < 0.5 ? 1 : 2), a2 = nx - 1;
+    if (a2 < 28) { a1 = nx + 2; a2 = nx + 1; }
+    return [N(r, 1), N(r + c[1], 1), N(a1, 1), N(a2, 1)];
+  }
+  // 每個和弦兩拍：根音＋接近音
+  const walk2Bar = (ch, nxCh) => [N(ch.r, 1), N(ap(nxCh.r, ch.r), 1)];
+  // 第 4 拍三連音跳躍（skip note）
+  function skipBar(ch, nxCh) {
+    const { r, c } = ch; const a = ap(nxCh.r, r + c[2]);
+    return [N(r, 1), N(r + c[1], 1), N(r + c[2], 1), N(r + c[2], 2 / 3), N(a, 1 / 3)];
+  }
+  function walk(chords, rnd, bar = walkBar) {
     const out = [];
-    chords.forEach((ch, i) => {
-      const { r, c } = ch;
-      const nx = chords[(i + 1) % chords.length].r;
-      const top = c[3] ?? 12;
-      const shapes = [[c[1], c[2]], [c[2], top], [c[1], c[2] - 12 >= -5 ? c[2] : c[2]], [2, c[1]], [c[2], c[1]], [12, top]];
-      const sh = shapes[Math.floor(rnd() * shapes.length)];
-      let b2 = r + sh[0], b3 = r + sh[1];
-      const lastBeat = b3;
-      let ap = rnd() < 0.5 ? nx - 1 : nx + 1;
-      if (rnd() < 0.2) ap = nx + 7 <= 52 ? nx + 7 : nx - 5;
-      if (Math.abs(ap - lastBeat) > 9) ap = nx + (lastBeat > nx ? 1 : -1);
-      if (ap < 28) ap = nx + 1;
-      out.push(N(r, 1), N(b2, 1), N(b3, 1), N(ap, 1));
-    });
-    const end = chords[0].r; out.push(N(end, 4));
+    chords.forEach((ch, i) => out.push(...bar(ch, chords[(i + 1) % chords.length], rnd)));
+    out.push(N(chords[0].r, 4));
     return out;
   }
 
@@ -382,52 +410,266 @@
     c => { const ch = prog(c.key.pc, 'sad', 36); return { title: `抒情：長音與連接（${kn(c.key)} 調）`, goal: '抒情歌：長音撐住和弦，在小節結尾用經過音連到下一個和弦。', tips: ['長音要飽滿不斷', '經過音輕柔', '服務歌曲，不要搶戲'], notes: bars(ch, (r, cc) => [N(r, 2), N(r + cc[2], 1), N(r + cc[1], 0.5), N(r + 2, 0.5)]) }; },
   ];
 
+  // ---------- 新階段：奇數拍與進階節奏 ----------
+  T.odd = [
+    c => { const ch = prog(c.key.pc, 'pop', 36); return { title: `3/4 華爾滋（${kn(c.key)} 調）`, goal: '三拍子：每小節三拍，第一拍最重。「根音–五度–五度」是華爾滋貝斯的基本型。', tips: ['數「1 2 3、1 2 3」，第 1 拍稍重', '第 2、3 拍輕而短', '很多抒情歌、民謠和爵士華爾滋都是三拍子'], meter: '3/4', notes: rep(bars(ch, (r, cc) => [N(r, 1), N(r + cc[2], 1), N(r + cc[2], 1)]), 2) }; },
+    c => { const ch = prog(c.key.pc, 'fifties', 36); return { title: `3/4 八分琶音（${kn(c.key)} 調）`, goal: '三拍子裡的八分音符琶音：1-3-5-8-5-3，讓線條在三拍裡流動。', tips: ['一小節剛好六個八分音符', '每小節第一音要清楚落在拍上', '不要不小心數成四拍'], meter: '3/4', notes: rep(bars(ch, (r, cc) => seq([r, r + cc[1], r + cc[2], r + 12, r + cc[2], r + cc[1]], 0.5)), 2) }; },
+    c => { const ch = prog(c.key.pc, 'sad', 36); return { title: `6/8 拍律動（${kn(c.key)} 調）`, goal: '6/8 是兩大拍，每大拍三個八分音符（1-2-3-4-5-6，重音在 1 和 4）。節拍器會每個八分音符響一下。', tips: ['重音在第 1 和第 4 個八分音符', '感覺像「搖籃」一樣左右擺動', '和 3/4 不同：3/4 是三個大拍，6/8 是兩個'], meter: '6/8', notes: rep(bars(ch, g8('x-xx-x', [0, 7, 12, 7])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'dorianVamp', 36); return { title: `5/4 拍（3+2）（${kn(c.key)}m）`, goal: '五拍子分成「3＋2」：1-2-3、4-5。重音在第 1 和第 4 拍。很多爵士和前衛搖滾都用這種拍號。', tips: ['先拍手數「1 2 3 1 2」', '線條的形狀幫你記住分組', '不要在第 5 拍後多停一拍'], meter: '5/4', notes: rep(bars(ch, g8('x-xx-x-x-x', [0, 0, 7, 12, 10, 7])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'minor', 36); return { title: `5/4 拍（2+3）（${kn(c.key)}m）`, goal: '同樣是五拍，換成「2＋3」：1-2、3-4-5。分組不同，律動的感覺完全不一樣。', tips: ['重音在第 1 和第 3 拍', '和上一課的「3＋2」比較', '想像兩小節：一個 2/4 加一個 3/4'], meter: '5/4', notes: rep(bars(ch, g8('x-x-xx-x-x', [0, 7, 0, 7, 10, 12])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'aeolian', 36); return { title: `7/8 拍（2+2+3）（${kn(c.key)}m）`, goal: '七個八分音符分成「2＋2＋3」：快–快–慢。巴爾幹音樂和前衛搖滾最愛的拍號。節拍器每個八分音符響一下。', tips: ['念「1-2、1-2、1-2-3」', '最後一組比較長，不要搶', '熟了以後會覺得它像「跛腳的 4/4」'], meter: '7/8', notes: rep(bars(ch, g8('x-x-x--', [0, 7, 12, 10])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'minor', 36); return { title: `7/8 八分音符（${kn(c.key)}m）`, goal: '7/8 拍裡填滿八分音符，靠重音位置（1、3、5）維持分組。', tips: ['每小節第 1 個音最重', '分組重音：1-2、3-4、5-6-7', '保持手指放鬆，速度平均'], meter: '7/8', notes: rep(bars(ch, g8('xxxxxxx', [0, 0, 7, 7, 12, 10, 7])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'dorianVamp', 36); return { title: `3 對 4 複節奏（${kn(c.key)}m）`, goal: '每三個十六分音符彈一個音，在 4/4 拍裡形成「3 對 4」的交錯感。這是現代放克和金屬常用的技巧。', tips: ['腳踩四分音符，手每隔三格彈一次', '線條每 3 個音循環一次，和小節錯開', '先慢速確認每個音的位置'], notes: rep(bars(ch, g16('x--x--x--x--x--x', [0, 7, 12])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'mixoVamp', 36); return { title: `律動移位（${kn(c.key)}）`, goal: '把熟悉的律動往後移一個十六分音符，第一拍變成空的。這叫節奏移位（displacement），是進階律動的必修課。', tips: ['第 1 拍休止，但心裡要很清楚它在哪', '每個音都比你直覺的晚一點', '和原本的律動對照著練'], notes: rep(bars(ch, g16('.x-x..x-.x-x..x.', [0, 12, 7, 0, 10])), 2) }; },
+    c => { const ch = prog(c.key.pc, 'pop', 36); return { title: `跨小節切分（${kn(c.key)} 調）`, goal: '最後一個音落在第 4 拍的「a」並延續到下一小節，「提前」換和弦（push）。流行與放克最常見的推進手法。', tips: ['提前的那個音已經是下一個和弦的根音', '延續音要撐住，不要在第 1 拍再彈一次', '數「4-e-&-a」，在 a 上彈'], notes: rep(bars(ch, (r, cc, x, nx) => [N(r, 0.75), N(r, 0.25), R(0.5), N(r + 7, 0.5), N(r + 12, 0.5), N(r + 10, 0.5), N(r + 7, 0.75), N(nx.r, 0.25)]), 2) }; },
+  ];
+
+  // ---------- 新階段：進階爵士與獨奏 ----------
+  T.jazz = [
+    c => { const ch = prog(c.key.pc, 'rhyA', 43); return { title: `Rhythm Changes A 段（${kn(c.key)} 調）`, goal: '每小節兩個和弦，每個和弦只有兩拍：根音＋接近音。和弦變化很快，左手要提前想好下一個位置。', tips: ['第 1、3 拍是根音，第 2、4 拍是接近音', '接近音比下一個根音高或低半音', '這是爵士最重要的曲式之一'], notes: walk(ch, c.rnd, walk2Bar) }; },
+    c => { const ch = prog(c.key.pc, 'bridge', 43); return { title: `屬七連鎖橋段（${kn(c.key)} 調）`, goal: `${progText(c.key, 'bridge')}：四個屬七和弦沿著五度圈往前推，每個兩小節。`, tips: ['每個和弦都是屬七：1-3-5-b7', '第二小節可以換不同的走法', '感受「一直想解決」的推進力'], notes: walk(ch, c.rnd) }; },
+    c => { const ch = prog(c.key.pc, 'minIIVI', 43); return { title: `小調 ii–V–i（${kn(c.key)}m）`, goal: `${progText(c.key, 'minIIVI')}。iiø 是半減七和弦（1-b3-b5-b7），小調爵士的核心。`, tips: ['半減七的五度是降五度', 'V7 走到 i 的接近音特別重要', '小調的 i 和弦三度是小三度'], notes: walk(ch.concat(ch), c.rnd) }; },
+    c => { const ch = prog(c.key.pc, 'tritone', 43); return { title: `三全音代理（${kn(c.key)} 調）`, goal: `${progText(c.key, 'tritone')}：用 bII7 取代 V7，根音變成半音下行，聲音更滑順。`, tips: ['bII7 和 V7 共用 3 度與 7 度', '根音 ii → bII → I 一路半音下行', '爵士貝斯手很愛用'], notes: walk(ch.concat(ch), c.rnd) }; },
+    c => { const ch = prog(c.key.pc, 'turn', 43); return { title: `包圍音 Walking（${kn(c.key)} 調）`, goal: '第 3、4 拍從上方和下方「包圍」下一個根音（enclosure）。比單一接近音更有爵士味。', tips: ['上方可以用全音或半音，下方用半音', '兩個包圍音要對準下一個根音', '這是 bebop 語彙的基礎'], notes: walk(ch.concat(prog(c.key.pc, 'turn', 43)), c.rnd, walkEncBar) }; },
+    c => { const ch = prog(c.key.pc, 'iiVI', 43); return { title: `三連音跳躍音（${kn(c.key)} 調）`, goal: 'Walking 第 4 拍拆成三連音的「長–短」，讓線條往前跳進下一小節（skip note）。', tips: ['第 4 拍：前 2/3 拍延續、最後 1/3 拍彈接近音', '跳躍音要輕', '不要每小節都用，這裡是練習'], notes: walk(ch.concat(ch), c.rnd, skipBar) }; },
+    c => { const pc = [4, 5, 7, 9, 10, 11, 0][c.v % 7]; const r = low(pc, 28); const qs = ['maj7', 'm7', '7', 'm7b5'][c.v % 4]; const cc = CH[qs]; const ms = [0, cc[1], cc[2], cc[3], 12, 12 + cc[1], 12 + cc[2], 12 + cc[3], 24].map(x => r + x); return { title: `兩個八度七和弦琶音（${(FLAT_PC.has(pc) ? FLAT : SHARP)[pc]}${CHN[qs]}）`, goal: '七和弦琶音跨兩個八度，上行再下行。高把位的和弦音要和低把位一樣熟。', tips: ['在第二個根音附近換把位', '用滑音或換指連接', '每個音念出它是幾度'], notes: rep(seq(upDown(ms), 0.5), 2).concat([N(ms[0], 1)]) }; },
+    c => { const r = low(c.key.pc, 31); const s = scaleOf(r, SC.major, 2); const ms = []; for (let i = 0; i < 7; i++) ms.push(s[i], s[i + 2], s[i + 4]); ms.push(s[7]); return { title: `${kn(c.key)} 調內三和弦連續琶音`, goal: '沿著大調音階彈每一級的三和弦（1-3-5、2-4-6、3-5-7…），三連音節奏。這是即興與寫線條的基本功。', tips: ['一拍三個音', '每組第一個音對齊拍子', '聽出大、小、減三和弦的顏色變化'], notes: fill(seq(ms, 1 / 3)) }; },
+    c => { const r = low(c.key.pc, 28); const s = scaleOf(r, SC.major, 2); const ms = []; for (let i = 0; i < 8; i++) ms.push(s[i], s[i + 5]); return { title: `${kn(c.key)} 大調六度音程`, goal: '音階每個音配上往上六度的音（1-6、2-7、3-8…）。大跳音程訓練左手的伸展與指板視野。', tips: ['六度通常在隔一條弦', '音程大，右手換弦要精準', '慢慢加速'], notes: fill(rep(seq(ms, 0.5), 2)) }; },
+    c => { const ch = prog(c.key.pc, 'iiVI', 36); return { title: `和弦音獨奏線（${kn(c.key)} 調）`, goal: '八分音符的和弦音線條，每小節最後一個音用接近音連到下一個和弦——像薩克斯風一樣「唱」過和弦進行。', tips: ['每小節前 7 個音都是和弦音', '最後一個音半音接近下一個根音', '這是 walking 進化成獨奏的關鍵'], notes: rep(bars(ch, (r, cc, x, nx) => seq([r, r + cc[1], r + cc[2], r + cc[3], r + 12, r + cc[3], r + cc[2], ap(nx.r, r + cc[2])], 0.5)), 2) }; },
+  ];
+
+  // ---------- 律動庫（應用曲用）----------
+  const G = {
+    whole: ['全音符', PAT.whole], half: ['二分音符', PAT.half], quarter: ['四分根音', PAT.quarter], eighth: ['八分根音', PAT.eighth], octQ: ['八度四分', PAT.octQ],
+    r5: ['根音＋五度', PAT.r5], r58: ['根–五–八', PAT.r58], r5half: ['根五二分', PAT.r5half], dotted: ['附點', PAT.dotted], sync1: ['切分', PAT.sync1], sync2: ['反拍休止', PAT.sync2], rest1: ['四分休止', PAT.rest1], oct8: ['八度八分', PAT.oct8],
+    arp: ['琶音', PAT.arp], arp8: ['八分琶音', PAT.arp8], r353: ['1-3-5-3', PAT.r353], boogie: ['Boogie', PAT.boogie], gallop: ['Gallop', PAT.gallop],
+    bossa: ['巴薩', PAT.bossa], country: ['Two-feel', PAT.country],
+    appr: ['根音＋接近音', (r, c, ch, nx) => [N(r, 1), N(r, 1), N(r + c[2], 1), N(ap(nx.r, r + c[2]), 1)]],
+    appr8: ['八分＋接近音', (r, c, ch, nx) => [...seq([r, r, r, r, r, r], 0.5), N(r + c[2], 0.5), N(ap(nx.r, r + c[2]), 0.5)]],
+    motown: ['Motown', g16('x--x--x-x-.xx---', [0, 12, 7, 10, 7, 0])],
+    pop16: ['流行十六分', g16('x--xx-x-x--xx-x-', [0, 0, 7, 12, 7, 0, '3', '5'])],
+    pent: ['五聲律動', g16('x-.xx-x-x-.x--x-', [0, 0, 7, 10, 12, 10, 7])],
+    funkOct: ['放克八度', g16('x.xx.x.xx.x.x.xx', [0, 12, 0, 12, 0, 12])],
+    funk7: ['放克小七', g16('x..x.xx.x.x..x..', [0, 12, 10, 7, 0, 10, 12])],
+    rock16: ['搖滾十六分', g16('x-xxx-xxx-xxx-xx', [0])],
+    sync16: ['十六分切分', g16('x..x..x...x.x...', [0, 0, 12, 7, 0])],
+    ballad16: ['抒情連接', g16('x-----x-x---x-xx', [0, 0, 7, 12, 10, 7])],
+    seventh: ['七和弦律動', g16('x--x-x-xx--x-x--', [0, '5', '7', 12, 0, '3', '5'])],
+    dorian: ['多利安律動', g16('x--x-xx-x--x-x-.', [0, 0, 7, 10, 12, 9, 7])],
+    mixo: ['混合利地安律動', g16('x-.xx-x-x-.x-xx-', [0, 0, 4, 7, 10, 12, 10, 7])],
+    trip: ['三連音琶音', g12('xxxxxxxxxxxx', [0, '3', '5', 12, '5', '3'])],
+    shuffle: ['Shuffle', g12('x-xx-xx-xx-x', [0, '3', '5', 9, 10, 9, '5', '3'])],
+    slap: ['Slap 八度', g16('x.x.x.xxx.x.x.xx', [0, 12, 0, 12, 0, 12, 10, 12])],
+    reggae: ['One Drop', g16('....x-x-....x.x.', [0, 0, 7, 12, 7])],
+    tumbao: ['Tumbao', g16('......x-----x---', ['5', 0])],
+    disco: ['迪斯可經過音', g16('x-x-x-x-x-x-x.xx', [0, 12, 0, 12, 0, 12, 0, 10, 12])],
+    rockPush: ['搖滾推進', g16('x-x-x-x-x-x-x-x-', [0, 0, 0, 0, 0, 0, 7, 10])],
+    soul: ['靈魂旋律', g16('x--x-.x-x--xx-x-', [0, 7, 12, 10, 7, 0, '3'])],
+    metal: ['Gallop Riff', g16('x-xxx-xxx-xxx-xx', [0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 5, 7])],
+    tenth: ['十度', (r, cc) => seq([r, r + 7, r + 12 + cc[1], r + 7], 1)],
+    waltz: ['華爾滋', (r, cc) => [N(r, 1), N(r + cc[2], 1), N(r + cc[2], 1)]],
+    waltzArp: ['三拍琶音', (r, cc) => seq([r, r + cc[1], r + cc[2], r + 12, r + cc[2], r + cc[1]], 0.5)],
+    six8: ['6/8 律動', g8('x-xx-x', [0, 7, 12, 7])],
+    six8b: ['6/8 琶音', g8('xxxxxx', [0, '3', '5', 12, '5', '3'])],
+    five: ['5/4（3+2）', g8('x-xx-x-x-x', [0, 0, 7, 12, 10, 7])],
+    fiveB: ['5/4（2+3）', g8('x-x-xx-x-x', [0, 7, 0, 7, 10, 12])],
+    seven: ['7/8（2+2+3）', g8('x-x-x--', [0, 7, 12, 10])],
+    seven8: ['7/8 八分音符', g8('xxxxxxx', [0, 0, 7, 7, 12, 10, 7])],
+    poly3: ['3 對 4', g16('x--x--x--x--x--x', [0, 7, 12])],
+    displace: ['律動移位', g16('.x-x..x-.x-x..x.', [0, 12, 7, 0, 10])],
+    walk: ['Walking', (r, c, ch, nx, rnd) => walkBar(ch, nx, rnd)],
+    walkEnc: ['包圍音 Walking', (r, c, ch, nx, rnd) => walkEncBar(ch, nx, rnd)],
+    walk2: ['每和弦兩拍 Walking', (r, c, ch, nx) => walk2Bar(ch, nx)],
+    skip: ['跳躍音 Walking', (r, c, ch, nx) => skipBar(ch, nx)],
+  };
+  const WALKG = new Set(['walk', 'walkEnc', 'walk2', 'skip', 'country']);
+
+  // 每個階段的「應用曲」：多段落、16～24 小節，像真的在樂團裡彈完一首歌
+  const APP = [
+    [{ n: '流行抒情', secs: [['pop', 'half', 2], ['fifties', 'quarter', 2]] }, { n: '搖滾小品', secs: [['classic', 'quarter', 2], ['rock', 'eighth', 2]] }, { n: '八度練習曲', secs: [['pop', 'whole', 1], ['pop', 'octQ', 2], ['fifties', 'eighth', 1]] }],
+    [{ n: '鄉村散步', secs: [['classic', 'r5', 2], ['fifties', 'r58', 2]] }, { n: '切分律動', secs: [['pop', 'dotted', 2], ['sad', 'sync1', 2]] }, { n: '休止的藝術', secs: [['classic', 'rest1', 2], ['aeolian', 'sync2', 2]] }, { n: '舞曲', secs: [['pop', 'eighth', 2], ['pop', 'oct8', 2]] }, { n: '藍調初體驗', secs: [['blues', 'quarter', 1], ['blues', 'r5', 1]] }],
+    [{ n: '接近音小品', secs: [['classic', 'appr', 2], ['turn', 'r58', 2]] }, { n: '流行推進', secs: [['pop', 'appr8', 2], ['fifties', 'appr', 2]] }, { n: '抒情走句', secs: [['sad', 'r5half', 2], ['pop', 'appr', 2]] }],
+    [{ n: '小調搖滾', secs: [['minor', 'pent', 2], ['aeolian', 'appr8', 2]] }, { n: 'Boogie 藍調', secs: [['blues', 'boogie', 1], ['blues', 'appr', 1]] }, { n: '五聲 Jam', secs: [['dorianVamp', 'pent', 2], ['aeolian', 'sync1', 2]] }],
+    [{ n: '琶音民謠', secs: [['classic', 'arp', 2], ['fifties', 'r353', 2]] }, { n: '和弦音律動', secs: [['pop', 'pop16', 2], ['sad', 'arp8', 2]] }, { n: '三和弦流行曲', secs: [['fifties', 'r353', 2], ['pop', 'arp8', 2]] }],
+    [{ n: 'Motown 金曲', secs: [['fifties', 'motown', 2], ['pop', 'pop16', 2]] }, { n: '搖滾奔馳', secs: [['rock', 'gallop', 2], ['classic', 'rock16', 2]] }, { n: '抒情十六分', secs: [['aeolian', 'ballad16', 2], ['sad', 'sync16', 2]] }],
+    [{ n: 'R&B 情歌', secs: [['turn', 'seventh', 2], ['iiVI', 'arp8', 2]] }, { n: '七和弦藍調', secs: [['blues', 'arp', 1], ['blues', 'appr', 1]] }, { n: '爵士抒情', secs: [['iiVI', 'country', 2], ['turn', 'arp', 2]] }],
+    [{ n: 'Walking 藍調兩圈', secs: [['blues', 'walk', 2]] }, { n: 'Two-feel 到 Walking', secs: [['turn', 'country', 2], ['turn', 'walk', 2]] }, { n: '小調藍調 Walking', secs: [['mblues', 'walk', 2]] }, { n: 'ii–V–I 雙調', secs: [['iiVI', 'walk', 2], ['turn', 'walk', 2]] }],
+    [{ n: '多利安放克', secs: [['dorianVamp', 'dorian', 2], ['dorianVamp', 'funk7', 2]] }, { n: '混合利地安搖滾', secs: [['mixoVamp', 'mixo', 2], ['mixoVamp', 'rockPush', 2]] }, { n: '調式 Jam', secs: [['dorianVamp', 'dorian', 2], ['mixoVamp', 'mixo', 2]] }],
+    [{ n: '迪斯可之夜', secs: [['pop', 'oct8', 2], ['pop', 'disco', 2]] }, { n: '放克 Jam', secs: [['dorianVamp', 'funkOct', 2], ['mixoVamp', 'slap', 2]] }, { n: 'Shuffle 藍調', secs: [['blues', 'shuffle', 2]] }, { n: '三連音抒情', secs: [['classic', 'trip', 2], ['fifties', 'trip', 2]] }],
+    [{ n: '十度抒情', secs: [['classic', 'tenth', 2], ['pop', 'r58', 2]] }, { n: '高速八度', secs: [['pop', 'oct8', 2], ['pop', 'funkOct', 2]] }, { n: '金屬奔馳', secs: [['minor', 'metal', 2], ['aeolian', 'gallop', 2]] }],
+    [{ n: '華爾滋', meter: '3/4', secs: [['pop', 'waltz', 2], ['fifties', 'waltzArp', 2]] }, { n: '6/8 抒情', meter: '6/8', secs: [['sad', 'six8', 2], ['pop', 'six8b', 2]] }, { n: '5/4 爵士', meter: '5/4', secs: [['dorianVamp', 'five', 2], ['minor', 'fiveB', 2]] }, { n: '7/8 前衛', meter: '7/8', secs: [['aeolian', 'seven', 2], ['minor', 'seven8', 2]] }, { n: '複節奏放克', secs: [['dorianVamp', 'poly3', 2], ['mixoVamp', 'displace', 2]] }],
+    [{ n: 'Rhythm Changes A 段', secs: [['rhyA', 'walk2', 2]] }, { n: '爵士藍調（包圍音）', secs: [['blues', 'walkEnc', 2]] }, { n: '小調 ii–V–i ＋ 三全音代理', secs: [['minIIVI', 'walk', 2], ['tritone', 'walkEnc', 2]] }, { n: '橋段與迴轉', secs: [['bridge', 'walk', 1], ['turn', 'skip', 2]] }],
+    [{ n: '搖滾抒情', secs: [['sad', 'ballad16', 2], ['rock', 'rockPush', 2]] }, { n: '靈魂樂', secs: [['fifties', 'soul', 2], ['turn', 'seventh', 2]] }, { n: '雷鬼', secs: [['classic', 'reggae', 4]] }, { n: '拉丁', secs: [['iiVI', 'tumbao', 2], ['turn', 'bossa', 2]] }, { n: '放克全曲', secs: [['mixoVamp', 'funk7', 2], ['dorianVamp', 'slap', 2]] }, { n: '舞池', secs: [['pop', 'disco', 2], ['fifties', 'motown', 2]] }],
+  ];
+
   const STAGES = [
-    { name: '基礎複習：指板與雙手', days: 30, bpm: [60, 80], keys: 4, t: T.s1, desc: '空弦、爬格子、音名、八度與根音——打穩基本功。' },
-    { name: '根音律動與節奏', days: 30, bpm: [70, 95], keys: 5, t: T.s2, desc: '根音、五度、八度、切分與休止，貝斯手的節奏核心。' },
-    { name: '大調音階', days: 30, bpm: [60, 100], keys: 7, t: T.s3, desc: '大調音階指型、三度、模進與音階走句。' },
-    { name: '小調・五聲・藍調', days: 30, bpm: [65, 105], keys: 8, t: T.s4, desc: '自然小調、五聲音階、藍調音階與 boogie。' },
-    { name: '三和弦琶音', days: 30, bpm: [70, 110], keys: 9, t: T.s5, desc: '大小減增三和弦、調內和弦、轉位與和弦內音律動。' },
-    { name: '十六分音符律動', days: 30, bpm: [65, 100], keys: 10, t: T.s6, desc: '十六分音符、gallop、Motown 與流行切分。' },
-    { name: '七和弦與爵士和聲', days: 30, bpm: [70, 110], keys: 12, t: T.s7, desc: '四種七和弦、調內七和弦、ii–V–I 與減七和弦。' },
-    { name: 'Walking Bass', days: 30, bpm: [80, 140], keys: 12, t: T.s8, desc: 'Two-feel、和弦音、接近音、藍調與 ii–V–I 的 walking。' },
-    { name: '調式', days: 30, bpm: [70, 110], keys: 12, t: T.s9, desc: '多利安、混合利地安、利地安、弗里吉安、洛克里安、旋律小調。' },
-    { name: 'Funk・八度・三連音', days: 30, bpm: [75, 105], keys: 12, t: T.s10, desc: '迪斯可八度、放克十六分、三連音與 shuffle。' },
-    { name: '換把位與速度', days: 30, bpm: [80, 130], keys: 12, t: T.s11, desc: '兩個八度音階與琶音、單弦換把位、速度練習。' },
-    { name: '綜合曲風實戰', days: 35, bpm: [80, 125], keys: 12, t: T.s12, desc: '搖滾、靈魂、雷鬼、迪斯可、拉丁、巴薩、爵士、放克、金屬。' },
+    { name: '基礎複習：指板與雙手', days: 20, bpm: [70, 95], keys: 4, t: T.s1, desc: '空弦、爬格子、音名、八度與根音——快速打穩基本功。' },
+    { name: '根音律動與節奏', days: 25, bpm: [75, 105], keys: 6, t: T.s2, desc: '根音、五度、八度、切分與休止，貝斯手的節奏核心。' },
+    { name: '大調音階', days: 25, bpm: [70, 110], keys: 7, t: T.s3, desc: '大調音階指型、三度、模進與音階走句。' },
+    { name: '小調・五聲・藍調', days: 25, bpm: [75, 115], keys: 9, t: T.s4, desc: '自然小調、五聲音階、藍調音階與 boogie。' },
+    { name: '三和弦琶音', days: 25, bpm: [80, 120], keys: 10, t: T.s5, desc: '大小減增三和弦、調內和弦、轉位與和弦內音律動。' },
+    { name: '十六分音符律動', days: 25, bpm: [70, 105], keys: 12, t: T.s6, desc: '十六分音符、gallop、Motown 與流行切分。' },
+    { name: '七和弦與爵士和聲', days: 25, bpm: [80, 120], keys: 12, t: T.s7, desc: '四種七和弦、調內七和弦、ii–V–I 與減七和弦。' },
+    { name: 'Walking Bass', days: 30, bpm: [100, 150], keys: 12, t: T.s8, desc: 'Two-feel、和弦音、接近音、藍調與 ii–V–I 的 walking。' },
+    { name: '調式', days: 25, bpm: [80, 120], keys: 12, t: T.s9, desc: '多利安、混合利地安、利地安、弗里吉安、洛克里安、旋律小調。' },
+    { name: 'Funk・八度・三連音', days: 30, bpm: [80, 115], keys: 12, t: T.s10, desc: '迪斯可八度、放克十六分、三連音與 shuffle。' },
+    { name: '換把位與速度', days: 25, bpm: [90, 140], keys: 12, t: T.s11, desc: '兩個八度音階與琶音、單弦換把位、速度練習。' },
+    { name: '奇數拍與進階節奏', days: 25, bpm: [80, 120], keys: 12, t: T.odd, desc: '3/4、6/8、5/4、7/8、3 對 4 複節奏、律動移位與跨小節切分。' },
+    { name: '進階爵士與獨奏', days: 25, bpm: [120, 170], keys: 12, t: T.jazz, desc: 'Rhythm Changes、小調 ii–V–i、三全音代理、包圍音、兩八度琶音與和弦音獨奏線。' },
+    { name: '綜合曲風實戰', days: 35, bpm: [90, 140], keys: 12, t: T.s12, desc: '搖滾、靈魂、雷鬼、迪斯可、拉丁、巴薩、爵士、放克、金屬。' },
   ];
 
   const round5 = (x) => Math.max(40, Math.round(x / 5) * 5);
+  const clone = (ns) => ns.map(n => ({ ...n }));
+  const beatsOf = (ns) => ns.reduce((a, n) => a + n.d, 0);
+  // 音符越密，速度上限越低（偵測器每秒最多可靠判斷約 9 個音）
+  function capBpm(notes, bpm) {
+    const minD = Math.min(...notes.filter(n => !n.r).map(n => n.d));
+    if (minD < 0.3) return Math.min(bpm, 125);
+    if (minD < 0.4) return Math.min(bpm, 150);
+    return Math.min(bpm, 200);
+  }
+  const keyOf = (pc) => KEYS.find(k => k.pc === ((pc % 12) + 12) % 12);
+
+  // ---------- 暖身・技巧（全年連續進度）----------
+  const PERMS = ['1234', '4321', '1324', '1243', '1423', '1342', '2143', '2413', '1432', '3142', '2314', '3412'];
+  function spider(perm, f0, d, order) {
+    const fs = [...perm].map(x => +x - 1); const out = [];
+    order.forEach((s, k) => (k < order.length / 2 ? fs : fs.slice().reverse()).forEach(x => out.push({ m: OPEN[s] + f0 + x, d, s, f: f0 + x })));
+    return out;
+  }
+  function tech(day) {
+    const x = (day - 1) / 364;
+    const pool = ['spider'];
+    if (day >= 15) pool.push('skip');
+    if (day >= 35) pool.push('diag');
+    if (day >= 70) pool.push('shift');
+    if (day >= 150) pool.push('scale3', 'arp2');
+    if (day >= 220) pool.push('scale4');
+    const fam = pool[day % pool.length];
+    const six = day >= 100 && (day >= 200 || day % 2 === 0);
+    const d = six ? 0.25 : 0.5;
+    const bpm = six ? round5(55 + 70 * Math.min(1, (day - 100) / 250)) : round5(60 + 80 * x);
+    const perm = PERMS[Math.floor(day / 3) % Math.min(PERMS.length, 2 + Math.floor(day / 20))];
+    const f0 = [1, 3, 5, 2, 7, 4, 9, 6][day % 8];
+    const unit = six ? '十六分音符' : '八分音符';
+    let o;
+    if (fam === 'spider' || fam === 'skip') {
+      const order = fam === 'spider' ? [0, 1, 2, 3, 3, 2, 1, 0] : [0, 2, 1, 3, 3, 1, 2, 0];
+      let notes = spider(perm, f0, d, order);
+      if (six) notes = notes.concat(spider(perm, f0 + 2, d, order));
+      o = { title: fam === 'spider' ? `爬格子 ${perm}（第 ${f0} 格・${unit}）` : `跳弦爬格子 ${perm}（第 ${f0} 格・${unit}）`, goal: fam === 'spider' ? `手指順序 ${perm}，逐弦往上再往下。每天換不同的手指排列，徹底訓練四指獨立。` : `手指順序 ${perm}，弦序 E→D→A→G 跳著彈，訓練右手準確跳弦。`, tips: ['一指一格，手指盡量貼近指板', '右手 i-m 嚴格交替', `目標速度 ${bpm} BPM，先降速彈乾淨再加速`], notes };
+    } else if (fam === 'diag') {
+      const fs = [...perm].map(k => +k - 1); const up = [];
+      for (let s = 0; s < 4; s++) fs.forEach(k => up.push({ m: OPEN[s] + f0 + s + k, d, s, f: f0 + s + k }));
+      let notes = up.concat(clone(up).reverse());
+      if (six) notes = notes.concat(clone(notes));
+      o = { title: `斜向爬格子 ${perm}（第 ${f0} 格起・${unit}）`, goal: '每換一條弦，整隻手往上移一格，再原路退回。練習換把位時手型保持不變。', tips: ['換弦的同時整隻手平移', '拇指跟著手一起移動', '移動時不要讓音斷掉'], notes };
+    } else if (fam === 'shift') {
+      const ps = [1, 5, 9]; const notes = [];
+      ps.forEach(p => [0, 1].forEach(s => [0, 1, 2, 3].forEach(k => notes.push({ m: OPEN[s] + p + k, d, s, f: p + k }))));
+      ps.slice().reverse().forEach(p => [1, 0].forEach(s => [3, 2, 1, 0].forEach(k => notes.push({ m: OPEN[s] + p + k, d, s, f: p + k }))));
+      o = { title: `換把位：第 1→5→9 格（${unit}）`, goal: '在 E、A 弦上彈完一個把位的四格後，整隻手往上跳四格，一路到第 12 格再回來。', tips: ['跳把位時用食指引導', '眼睛先看目標位置', '換把位不能影響節奏'], notes };
+    } else if (fam === 'scale3' || fam === 'scale4') {
+      const pc = [4, 5, 7, 9, 10, 11, 0, 6, 8][day % 9]; const r = low(pc, 28); const s = scaleOf(r, SC.major, 2); const ms = [];
+      if (fam === 'scale3') { for (let i = 0; i <= 12; i++) ms.push(s[i], s[i + 2]); ms.push(s[14]); for (let i = 14; i >= 2; i--) ms.push(s[i], s[i - 2]); ms.push(s[0]); }
+      else { for (let i = 0; i <= 11; i++) ms.push(s[i], s[i + 1], s[i + 2], s[i + 3]); for (let i = 14; i >= 3; i--) ms.push(s[i], s[i - 1], s[i - 2], s[i - 3]); ms.push(s[0]); }
+      o = { title: `${FLAT_PC.has(pc) ? FLAT[pc] : SHARP[pc]} 大調兩個八度${fam === 'scale3' ? '三度' : '四音模進'}（${unit}）`, goal: `兩個八度的大調音階，用${fam === 'scale3' ? '三度音程' : '1234 模進'}上下行。整個指板都要走到。`, tips: ['先找好換把位的點', '上行和下行可以用不同的指法', '每拍第一個音稍重'], notes: seq(ms, d), auto: true };
+    } else {
+      const pc = [4, 5, 7, 9, 10, 11, 0][day % 7]; const r = low(pc, 28); const qa = [['maj7', 'm7'], ['7', 'm7b5']][day % 2]; const ms = [];
+      qa.forEach(q => { const c = CH[q]; const a = [0, c[1], c[2], c[3], 12, 12 + c[1], 12 + c[2], 12 + c[3], 24].map(v => r + v); ms.push(...a, ...a.slice(0, -1).reverse()); });
+      ms.push(r);
+      const nm = FLAT_PC.has(pc) ? FLAT[pc] : SHARP[pc];
+      o = { title: `兩個八度七和弦琶音：${nm}${CHN[qa[0]]}、${nm}${CHN[qa[1]]}（${unit}）`, goal: '同一個根音上的兩種七和弦，各彈兩個八度上下行。', tips: ['在第二個根音換把位', '比較兩種和弦差在哪幾個音', '保持音量平均'], notes: seq(ms, d), auto: true };
+    }
+    const notes = fill(o.notes);
+    if (o.auto) assignTab(notes);
+    return { kind: 'tech', label: '暖身・技巧', title: o.title, goal: o.goal, tips: o.tips, notes, bpm, key: KEYS[0], meter: METER['4/4'], fixed: true };
+  }
+
+  // ---------- 今日主題：原調＋移調再彈一次 ----------
+  function mainDrill(st, si, j, day, bpm0) {
+    const tpl = st.t[j % st.t.length];
+    const v = Math.floor(j / st.t.length) + si;
+    const key = KEYS[(j * 5 + si * 3) % st.keys];
+    const o = tpl({ v, key, rnd: rng(day * 7919), flat: FLAT_PC.has(key.pc) });
+    const meter = METER[o.meter || '4/4'];
+    let notes = fill(clone(o.notes), meter.bpb);
+    let goal = o.goal;
+    if (beatsOf(notes) <= meter.bpb * 8 + 1e-6) {
+      const key2 = keyOf(key.pc + 5);
+      const o2 = tpl({ v: v + 1, key: key2, rnd: rng(day * 7919 + 1), flat: FLAT_PC.has(key2.pc) });
+      notes = notes.concat(fill(clone(o2.notes), meter.bpb));
+      goal += o2.title !== o.title ? `\n後半段：${o2.title}。` : '\n同一段彈兩遍，第二遍要更穩。';
+    }
+    if (!o.fixed) assignTab(notes);
+    return { kind: 'main', label: '今日主題', title: o.title, goal, tips: o.tips, notes, bpm: capBpm(notes, round5(bpm0 * (o.bpmMul || 1))), key, meter, fixed: true };
+  }
+
+  // ---------- 應用曲 ----------
+  function appDrill(si, idx, key, bpm0, rnd) {
+    const sg = APP[si][idx % APP[si].length];
+    const meter = METER[sg.meter || '4/4'];
+    const items = [];
+    sg.secs.forEach(([pn, gk, times]) => { const chs = prog(key.pc, pn, WALKG.has(gk) ? 43 : 38); for (let t = 0; t < times; t++) chs.forEach(ch => items.push({ ch, gk })); });
+    const notes = [];
+    items.forEach((it, i) => { const nx = items[(i + 1) % items.length].ch; notes.push(...G[it.gk][1](it.ch.r, it.ch.c, it.ch, nx, rnd)); });
+    notes.push(N(items[0].ch.r, meter.bpb));
+    const ns = fill(notes, meter.bpb); assignTab(ns);
+    const nBars = Math.round(beatsOf(ns) / meter.bpb);
+    const goal = `${sg.secs.map(([pn, gk, t]) => `${PROG_NAME[pn]}${t > 1 ? ` ×${t}` : ''}，用「${G[gk][0]}」`).join(' → ')}，最後收在根音。共 ${nBars} 小節${meter.name !== '4/4' ? `（${meter.name} 拍）` : ''}，中間不停。`;
+    return { kind: 'app', label: '應用曲', title: `${sg.n}（${key.n} 調）`, goal, tips: ['段落之間不要停，像真的在樂團裡演奏', '換段落時律動要跟著換，但速度不變', '最後一個長音撐滿到小節結束'], notes: ns, bpm: capBpm(ns, round5(bpm0 * 0.95)), key, meter, fixed: true };
+  }
+
+  function revDrill(src, srcDay, extra, maxBpm, label = '複習') {
+    const bpm = capBpm(src.notes, Math.min(Math.max(src.bpm, maxBpm * 0.8), src.bpm + extra));
+    return { ...src, kind: 'rev', label, title: `Day ${srcDay}：${src.title}`, goal: `回頭複習 Day ${srcDay} 的內容，這次目標速度提高到 ${round5(bpm)} BPM。\n${src.goal}`, notes: clone(src.notes), bpm: round5(bpm) };
+  }
 
   function build() {
     const lessons = []; let day = 1; let start = 1;
     STAGES.forEach((st, si) => {
       st.start = start; st.end = start + st.days - 1; st.index = si;
-      let j = 0;
+      let j = 0, ai = 0;
       for (let i = 0; i < st.days; i++, day++) {
         const bpm0 = st.bpm[0] + (st.bpm[1] - st.bpm[0]) * (i / (st.days - 1));
-        let L;
+        const drills = [tech(day)];
+        let title, goal, key, review = false;
         if (day === 365) {
-          const key = KEYS[0];
-          const ch = prog(key.pc, 'blues', 43);
-          L = { title: '畢業考：12 小節藍調 Walking ＋ 放克尾奏', goal: '恭喜走到第 365 天！把一年來學到的 walking bass 與放克律動串成一首完整的曲子。', tips: ['先用第一顆星確認每個音', '再用節奏模式挑戰完整速度', '你已經是一位真正的貝斯手了'], notes: walk(ch, rng(365)).slice(0, -1).concat(bars(prog(key.pc, 'mixoVamp', 36), g16('x.xx.x.xx.x.x.xx', [0, 12, 10, 7, 0, 12, 10, 12, 7]))).concat([N(36, 4)]), bpm: 100, key, review: false };
-        } else if (day % 7 === 0 && lessons.length >= 2) {
-          const a = lessons[lessons.length - 1], b = lessons[lessons.length - 2];
-          L = { title: `第 ${day / 7} 週複習`, goal: `把這週的「${b.title}」和「${a.title}」串在一起，一口氣彈完。`, tips: ['兩段之間不要停', '先求準確，再求速度', '複習日也是檢查自己進步的好時機'], notes: b.notes.map(n => ({ ...n })).concat(a.notes.map(n => ({ ...n }))), bpm: Math.min(a.bpm, b.bpm), key: a.key, review: true, fixed: true };
+          key = KEYS[2];
+          const blues = prog(key.pc, 'blues', 43);
+          drills.push({ kind: 'main', label: '畢業考 1', title: 'F 調爵士藍調 Walking 兩圈（包圍音）', goal: '兩圈 12 小節藍調，用包圍音 walking。一年來的 walking bass 全部用上。', tips: ['四分音符像時鐘一樣穩', '每小節第 1 拍一定是根音', '速度不夠就先降速'], notes: assignTab(fill(walk(blues.concat(prog(key.pc, 'blues', 43)), rng(365), walkEncBar))), bpm: 150, key, meter: METER['4/4'], fixed: true });
+          drills.push(appDrill(12, 0, keyOf(10), 150, rng(3651)));
+          drills.push(appDrill(11, 3, keyOf(9), 110, rng(3652)));
+          drills.push(appDrill(13, 4, keyOf(4), 110, rng(3653)));
+          drills.forEach((d, k) => { if (k > 0) d.label = `畢業考 ${k}`; });
+          title = '畢業考：爵士、奇數拍、放克總驗收';
+          goal = '恭喜走到第 365 天！五段考試涵蓋技巧、walking bass、Rhythm Changes、7/8 拍與放克。全部拿到兩顆星就是真正的畢業。';
+        } else if (day % 7 === 0) {
+          review = true; key = lessons[day - 2].key;
+          [1, 3, 5].forEach(b => { const L = lessons[day - 1 - b]; if (L) { const src = L.drills.find(d => d.kind === 'main') || L.drills[1]; drills.push(revDrill(src, L.day, 5, st.bpm[1], '本週複習')); } });
+          const L2 = lessons[day - 2]; const ap2 = L2.drills.find(d => d.kind === 'app');
+          if (ap2) drills.push(revDrill(ap2, L2.day, 5, st.bpm[1], '本週應用曲'));
+          title = `第 ${day / 7} 週複習`;
+          goal = '把這週的主題和應用曲提高速度再彈一次。全部通過才算完成這週。';
         } else {
-          const tpl = st.t[j % st.t.length];
-          const v = Math.floor(j / st.t.length) + si;
-          const key = KEYS[(j * 5 + si * 3) % st.keys];
-          const ctx = { v, key, rnd: rng(day * 7919), flat: FLAT_PC.has(key.pc) };
-          const o = tpl(ctx);
-          L = { ...o, bpm: round5(bpm0 * (o.bpmMul || 1)), key };
-          j++;
+          const m = mainDrill(st, si, j, day, bpm0); j++;
+          key = m.key; drills.push(m);
+          drills.push(appDrill(si, ai++, KEYS[(day * 7 + si) % st.keys], bpm0, rng(day * 31)));
+          if (day > 3) {
+            let src = day - [2, 9, 30, 90][day % 4]; if (src < 1) src = day - 2;
+            while (lessons[src - 1].review) src--;
+            const L = lessons[src - 1]; const sd = L.drills.find(d => d.kind === 'main') || L.drills[1];
+            drills.push(revDrill(sd, src, 10, st.bpm[1]));
+          }
+          title = m.title; goal = m.goal.split('\n')[0];
         }
-        L.notes = fill(L.notes.map(n => ({ ...n })));
-        L.notes.forEach(n => { n.d = Math.round(n.d * 120) / 120; });
-        if (!L.fixed) assignTab(L.notes);
-        L.day = day; L.stage = si; L.flat = FLAT_PC.has(L.key.pc);
-        lessons.push(L);
+        drills.forEach(d => {
+          d.notes = fill(d.notes.map(n => ({ ...n })), d.meter.bpb);
+          d.notes.forEach(n => { n.d = Math.round(n.d * 120) / 120; });
+          d.flat = FLAT_PC.has(d.key.pc);
+        });
+        lessons.push({ day, stage: si, title, goal, key, review, drills, flat: FLAT_PC.has(key.pc) });
       }
       start += st.days;
     });
@@ -437,5 +679,5 @@
   const LESSONS = build();
   const noteName = (m, flat) => (flat ? FLAT : SHARP)[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
   const pcName = (m, flat) => (flat ? FLAT : SHARP)[((m % 12) + 12) % 12];
-  window.BASS365 = { LESSONS, STAGES, OPEN, SN, noteName, pcName };
+  window.BASS365 = { LESSONS, STAGES, OPEN, SN, METER, noteName, pcName };
 })();
